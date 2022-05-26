@@ -4,58 +4,96 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 
+from acquire import get_titanic_data, get_iris_data
 
-# ------------------- TELCO DATA -------------------
+###################### Prep Iris Data ######################
 
-def split_telco_data(df):
+def prep_iris(cached=True):
     '''
-    This function performs split on telco data, stratify churn.
+    This function acquires and prepares the iris data from a local csv, default.
+    Passing cached=False acquires fresh data from Codeup db and writes to csv.
+    Returns the iris df with dummy variables encoding species.
+    '''
+    
+    # use my aquire function to read data into a df from a csv file
+    df = get_iris_data(cached)
+    
+    # drop and rename columns
+    df = df.drop(columns='species_id').rename(columns={'species_name': 'species'})
+    
+    # create dummy columns for species
+    species_dummies = pd.get_dummies(df.species, drop_first=True)
+    
+    # add dummy columns to df
+    df = pd.concat([df, species_dummies], axis=1)
+    
+    return df
+
+###################### Prep Titanic Data ######################
+
+def titanic_split(df):
+    '''
+    This function performs split on titanic data, stratify survived.
     Returns train, validate, and test dfs.
     '''
     train_validate, test = train_test_split(df, test_size=.2, 
                                         random_state=123, 
-                                        stratify=df.churn)
+                                        stratify=df.survived)
     train, validate = train_test_split(train_validate, test_size=.3, 
                                    random_state=123, 
-                                   stratify=train_validate.churn)
+                                   stratify=train_validate.survived)
     return train, validate, test
 
-def prep_telco_data(df):
-    # Drop duplicate columns
-    df.drop(columns=['payment_type_id', 'internet_service_type_id', 'contract_type_id', 'customer_id'], inplace=True)
-       
-    # Drop null values stored as whitespace    
-    df['total_charges'] = df['total_charges'].str.strip()
-    df = df[df.total_charges != '']
+
+
+def impute_mean_age(train, validate, test):
+    '''
+    This function imputes the mean of the age column into
+    observations with missing values.
+    Returns transformed train, validate, and test df.
+    '''
+    # create the imputer object with mean strategy
+    imputer = SimpleImputer(strategy = 'mean')
     
-    # Convert to correct datatype
-    df['total_charges'] = df.total_charges.astype(float)
+    # fit on and transform age column in train
+    train['age'] = imputer.fit_transform(train[['age']])
     
-    # Convert binary categorical variables to numeric
-    df['gender_encoded'] = df.gender.map({'Female': 1, 'Male': 0})
-    df['partner_encoded'] = df.partner.map({'Yes': 1, 'No': 0})
-    df['dependents_encoded'] = df.dependents.map({'Yes': 1, 'No': 0})
-    df['phone_service_encoded'] = df.phone_service.map({'Yes': 1, 'No': 0})
-    df['paperless_billing_encoded'] = df.paperless_billing.map({'Yes': 1, 'No': 0})
-    df['churn_encoded'] = df.churn.map({'Yes': 1, 'No': 0})
+    # transform age column in validate
+    validate['age'] = imputer.transform(validate[['age']])
     
-    # Get dummies for non-binary categorical variables
-    dummy_df = pd.get_dummies(df[['multiple_lines', \
-                              'online_security', \
-                              'online_backup', \
-                              'device_protection', \
-                              'tech_support', \
-                              'streaming_tv', \
-                              'streaming_movies', \
-                              'contract_type', \
-                              'internet_service_type', \
-                              'payment_type']], dummy_na=False, \
-                              drop_first=True)
+    # transform age column in test
+    test['age'] = imputer.transform(test[['age']])
     
-    # Concatenate dummy dataframe to original 
-    df = pd.concat([df, dummy_df], axis=1)
+    return train, validate, test
+
+
+def prep_titanic(cached=True):
+    '''
+    This function reads titanic data into a df from a csv file.
+    Returns prepped train, validate, and test dfs
+    '''
+    # use my acquire function to read data into a df from a csv file
+    df = get_titanic_data(cached)
     
-    # split the data
-    train, validate, test = split_telco_data(df)
+    # drop rows where embarked/embark town are null values
+    df = df[~df.embarked.isnull()]
+    
+    # convert sex into numeric data
+    df['is_female'] = df.sex.apply(lambda x: 0 if x == 'male' else 1)
+
+    # encode embarked using dummy columns
+    titanic_dummies = pd.get_dummies(df.embarked, drop_first=True)
+    
+    # join dummy columns back to df
+    df = pd.concat([df, titanic_dummies], axis=1)
+    
+    # drop the deck and sex columns
+    df = df.drop(columns=['deck', 'sex'])
+    
+    # split data into train, validate, test dfs
+    train, validate, test = titanic_split(df)
+    
+    # impute mean of age into null values in age column
+    train, validate, test = impute_mean_age(train, validate, test)
     
     return train, validate, test
